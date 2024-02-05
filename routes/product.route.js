@@ -1,110 +1,246 @@
-const express = require('express');
-const router = express.Router();
-const Order = require('../models/order.model');
+const router = require('express').Router();
+const Product = require('../models/product.model');
 const User = require('../models/user.model');
 const authenticateToken = require('../middleware/authMiddleware');
 
+router.get('/', authenticateToken, async (res) => {
+  try {
+      // Fetch products only if the user is authenticated
+      // Use req.user to get user information from the token
+      const products = await Product.find().sort({ '_id': -1 });
 
+      // Respond with the products
+      res.status(200).json(products);
+  } catch (error) {
+      // Handle errors
+      res.status(400).send(error.message);
+  }
+});
 
-// POST route to create a new order
+  
 router.post('/', authenticateToken, async (req, res) => {
-  const io = req.app.get('socketio');
-  const { userId, cart, country, address } = req.body;
-
   try {
-      // Ensure that the user is authenticated
-      if (!req.user || !req.user.userId) {
-          return res.status(401).json({ message: 'Unauthorized: Missing or invalid token' });
-      }
-
-      // Ensure that the authenticated user is a regular user
-      const user = await User.findById(req.user.userId);
-      if (!user || user.role !== 'regular') {
-          return res.status(403).json({ message: 'Forbidden: You are not authorized to perform this action' });
-      }
-
-      // Create a new order
-      const order = await Order.create({
-          owner: user._id,
-          products: cart,
-          country,
-          address,
-          count: cart.count,
-          total: cart.total,
-      });
-
-      // Update user's cart and orders
-      user.cart = { total: 0, count: 0 };
-      user.orders.push(order);
-
-      // Save the updated user
-      user.markModified('orders');
-      await user.save();
-
-      // Notify clients about the new order
-      const notification = {
-          status: 'unread',
-          message: `New order from ${user.name}`,
-          time: new Date(),
-      };
-      io.sockets.emit('new-order', notification);
-
-      res.status(200).json(user);
-  } catch (error) {
-      res.status(400).json(error.message);
-  }
-});
-
-
-// GET route to retrieve all orders
-router.get('/', authenticateToken, async (req, res) => {
-  try {
-      // Ensure that the authenticated user is an admin
+      // Check if the user is an admin
       if (req.user.role !== 'admin') {
-          return res.status(403).json({ message: 'Forbidden: You are not authorized to access this resource' });
+          return res.status(403).send('Forbidden: You are not authorized to perform this action');
       }
 
-      // Retrieve orders with owner's email and name populated
-      const orders = await Order.find().populate('owner', ['email', 'name']);
+      const { name, description, price, category, images: pictures } = req.body;
 
-      res.status(200).json(orders);
+      // Create a new product
+      await Product.create({ name, description, price, category, pictures });
+
+      // Retrieve all products after creating the new one
+      const products = await Product.find();
+
+      res.status(201).json(products);
   } catch (error) {
-      res.status(400).json(error.message);
+      res.status(400).send(error.message);
   }
 });
 
-
-// PATCH route to mark an order as shipped
-router.patch('/:id/mark-shipped', authenticateToken, async (req, res) => {
-  const io = req.app.get('socketio');
-  const { ownerId } = req.body;
+  
+router.patch('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
   try {
-      // Ensure that the authenticated user is an admin
+      // Check if the user is an admin
       if (req.user.role !== 'admin') {
-          return res.status(403).json({ message: 'Forbidden: You are not authorized to perform this action' });
+          return res.status(403).send('Forbidden: You are not authorized to perform this action');
       }
 
-      // Find the user by ID
-      const user = await User.findById(ownerId);
+      const { name, description, price, category, images: pictures } = req.body;
 
-      // Mark the order as shipped
-      await Order.findByIdAndUpdate(id, { status: 'shipped' });
+      // Update the product by ID
+      await Product.findByIdAndUpdate(id, { name, description, price, category, pictures });
 
-      // Retrieve updated orders with owner's email and name populated
-      const orders = await Order.find().populate('owner', ['email', 'name']);
+      // Retrieve all products after updating
+      const products = await Product.find();
 
-      // Notify the user and update notifications
-      const notification = { status: 'unread', message: `Order ${id} shipped with success`, time: new Date() };
-      io.sockets.emit("notification", notification, ownerId);
-      user.notifications.push(notification);
-      await user.save();
-
-      res.status(200).json(orders);
+      res.status(200).json(products);
   } catch (error) {
-      res.status(400).json(error.message);
+      res.status(400).send(error.message);
   }
 });
 
-module.exports = router;
+
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+      // Check if the user is an admin
+      if (req.user.role !== 'admin') {
+          return res.status(403).send('Forbidden: You are not authorized to perform this action');
+      }
+
+      // Delete the product by ID
+      await Product.findByIdAndDelete(id);
+
+      // Retrieve all products after deletion
+      const products = await Product.find();
+
+      res.status(200).json(products);
+  } catch (error) {
+      res.status(400).send(error.message);
+  }
+});
+
+  
+  router.get('/:id', async (req, res) => {
+    const { id } = req.params;
+  
+    try {
+      // Retrieve the product by ID
+      const product = await Product.findById(id);
+  
+      // Retrieve similar products based on category
+      const similar = await Product.find({ category: product.category }).limit(5);
+  
+      res.status(200).json({ product, similar });
+    } catch (error) {
+      res.status(400).send(error.message);
+    }
+  });
+
+  router.get('/category/:category', authenticateToken, async (req, res) => {
+    const { category } = req.params;
+
+    try {
+        // Define the sort order
+        const sort = { '_id': -1 };
+
+        // Determine the query based on the category
+        const query = (category === 'all') ? {} : { category };
+
+        // Retrieve products with the specified category and apply sorting
+        const products = await Product.find(query).sort(sort);
+
+        res.status(200).json(products);
+    } catch (error) {
+        res.status(400).send(error.message);
+    }
+});
+
+
+router.post('/add-to-cart', authenticateToken, async (req, res) => {
+  const { userId, productId, price } = req.body;
+
+  try {
+      // Ensure that the user is a regular user
+      if (req.user.role !== 'regular') {
+          return res.status(403).send('Forbidden: You are not authorized to perform this action');
+      }
+
+      // Find the user by ID
+      const user = await User.findById(userId);
+
+      // Update the user's cart
+      const userCart = user.cart;
+      userCart[productId] = (userCart[productId] || 0) + 1;
+      userCart.count += 1;
+      userCart.total += Number(price);
+
+      // Save the updated user with the modified cart
+      user.cart = userCart;
+      user.markModified('cart');
+      await user.save();
+
+      res.status(200).json(user);
+  } catch (error) {
+      res.status(400).send(error.message);
+  }
+});
+
+  
+  router.post('/increase-cart', authenticateToken, async (req, res) => {
+    const { userId, productId, price } = req.body;
+
+    try {
+        // Ensure that the user is a regular user
+        if (req.user.role !== 'regular') {
+            return res.status(403).send('Forbidden: You are not authorized to perform this action');
+        }
+
+        // Find the user by ID
+        const user = await User.findById(userId);
+
+        // Update the user's cart
+        const userCart = user.cart;
+        userCart.total += Number(price);
+        userCart.count += 1;
+        userCart[productId] += 1;
+
+        // Save the updated user with the modified cart
+        user.cart = userCart;
+        user.markModified('cart');
+        await user.save();
+
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(400).send(error.message);
+    }
+});
+
+
+  router.post('/decrease-cart', authenticateToken, async (req, res) => {
+    const { userId, productId, price } = req.body;
+
+    try {
+        // Ensure that the user is a regular user
+        if (req.user.role !== 'regular') {
+            return res.status(403).send('Forbidden: You are not authorized to perform this action');
+        }
+
+        // Find the user by ID
+        const user = await User.findById(userId);
+
+        // Update the user's cart
+        const userCart = user.cart;
+        userCart.total -= Number(price);
+        userCart.count -= 1;
+        userCart[productId] = Math.max(0, userCart[productId] - 1); // Ensure the count doesn't go below zero
+
+        // Save the updated user with the modified cart
+        user.cart = userCart;
+        user.markModified('cart');
+        await user.save();
+
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(400).send(error.message);
+    }
+});
+
+
+router.post('/remove-from-cart', authenticateToken, async (req, res) => {
+  const { userId, productId, price } = req.body;
+
+  try {
+      // Ensure that the user is a regular user
+      if (req.user.role !== 'regular') {
+          return res.status(403).send('Forbidden: You are not authorized to perform this action');
+      }
+
+      // Find the user by ID
+      const user = await User.findById(userId);
+
+      // Update the user's cart
+      const userCart = user.cart;
+      const productCount = userCart[productId] || 0;
+      userCart.total -= productCount * Number(price);
+      userCart.count -= productCount;
+      delete userCart[productId];
+
+      // Save the updated user with the modified cart
+      user.cart = userCart;
+      user.markModified('cart');
+      await user.save();
+
+      res.status(200).json(user);
+  } catch (error) {
+      res.status(400).send(error.message);
+  }
+});
+
+
+  module.exports = router;
