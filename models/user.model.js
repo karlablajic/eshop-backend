@@ -44,7 +44,10 @@ const UserSchema = mongoose.Schema({
     default: []
   },
 
-  orders: [{type: mongoose.Schema.Types.ObjectId, ref: 'Order'}]
+  orders: [{type: mongoose.Schema.Types.ObjectId, ref: 'Order'}],
+  token: {
+    type: String
+}
 
 }, {minimize: false});
 
@@ -90,6 +93,11 @@ UserSchema.pre('save', function (next) {
 UserSchema.pre('remove', function(next){
   this.model('Order').remove({owner: this._id}, next);
 })
+
+
+const User = mongoose.model('User', UserSchema);
+
+module.exports = User;
 
 
 const User = mongoose.model('User', UserSchema);
