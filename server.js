@@ -4,14 +4,13 @@ const app = express();
 require('./connection');
 
 const cookieParser = require('cookie-parser');
-const { requireAuth } = require('./middleware/authMiddleware');
-const authRoutes = require('./routes/user.route');
+const authenticateToken = require('./middleware/authMiddleware');
 
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
 const io = new Server(server, {
-  cors: { origin: 'http://localhost:3001', methods: ['GET', 'POST', 'PATCH', 'DELETE'] },
+  cors: { origin: 'http://localhost:3000', methods: ['GET', 'POST', 'PATCH', 'DELETE'] },
 });
 
 const User = require('./models/user.model');
@@ -20,10 +19,10 @@ const userRoutes = require('./routes/user.route');
 const productRoutes = require('./routes/product.route');
 const orderRoutes = require('./routes/order.route');
 const imageRoutes = require('./routes/image.route');
-const { checkUser } = require('./middleware/authMiddleware');
+
 
 const corsOptions = {
-  origin: 'http://localhost:3001',
+  origin: 'http://localhost:3000',
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
 };
 
@@ -39,11 +38,11 @@ app.use('/images', imageRoutes);
 app.use(express.static('public'));
 app.use(express.json());
 app.use(cookieParser());
+app.use(authenticateToken);
 
-app.get('*', checkUser);
+
 app.get('/', (req, res) => res.render('home'));
-app.get('/eshop', requireAuth, (req, res)=> res.render('eshop'));
-app.use(authRoutes);
+
 
 //cookies
 app.get('/set-cookies', (req, res) =>{
@@ -51,7 +50,7 @@ app.get('/set-cookies', (req, res) =>{
   //res.setHeader('Set-Cookie', 'newUser=true');
 
   res.cookie('newUser', false);
-  res.cookie('isCustomer', true, {maxAge: 1000 * 60 * 60 * 24, httpOnly: true });
+  res.cookie('isUser', true, {maxAge: 1000 * 60 * 60 * 24, httpOnly: true });
 
   res.send('you got the cookies');
 
@@ -85,5 +84,7 @@ const port = 9000;
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
+
+//app.set('socketio', io);
 
 //app.set('socketio', io);
